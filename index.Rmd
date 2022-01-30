@@ -2,50 +2,183 @@
 title: "Medical Education(MEED)"
 output: 
   flexdashboard::flex_dashboard:
+    css: style.css
+    social: menu
+    source_code: embed
     orientation: columns
     vertical_layout: fill
 ---
 
 ```{r setup, include=FALSE}
+#------------------ Packages ------------------
 library(flexdashboard)
+
+`%>%` <- magrittr::`%>%`
+### Pulling most recent data from Github
+italy_region <- readr::read_csv("https://raw.githubusercontent.com/RamiKrispin/covid19Italy/master/csv/italy_region.csv")
+italy_region$date <- as.Date(italy_region$date)
+
+
+italy_total <- readr::read_csv("https://raw.githubusercontent.com/RamiKrispin/covid19Italy/master/csv/italy_total.csv")
+italy_total$date <- as.Date(italy_total$date)
+
+
+#------------------ Parameters ------------------
+# Set colors: https://www.w3.org/TR/css-color-3/#svg-color
+tested_color <- "purple"
+positive_color <- RColorBrewer::brewer.pal(9, "PuRd")[7]
+active_color <- "#1f77b4"
+recovered_color <- "forestgreen"
+# death_color <- "#660708"
+death_color <- "red"
+intensive_care_color <- "#ba181b"
+h_symptoms_color <- "#e5383b"
+home_conf_color <- "#FDBBBC"
+
+
+italy_total_last <- italy_total %>% dplyr::filter(date == max(date))
+
+
+italy_total <- italy_total %>% 
+  dplyr::arrange(date) %>%
+  dplyr::mutate(tested_daily = total_tests - dplyr::lag(total_tests, n = 1),
+                daily_new_cases = c(NA,diff(italy_total$cumulative_cases))) %>%
+  dplyr::mutate(new_cases_smooth = (daily_new_cases +
+                                    dplyr::lag(daily_new_cases, n = 1) +
+                                    dplyr::lag(daily_new_cases, n = 2) +
+                                    dplyr::lag(daily_new_cases, n = 3) +
+                                    dplyr::lag(daily_new_cases, n = 4)) / 5)
+
+italy_total$tested_daily[1] <- italy_total$total_tests[1]
+
 ```
 
-Column {data-width=650}
+Summary
+=======================================================================
+Column { data-width=150 }
+-----------------------------------------------------------------------
+### tested {.value-box}
+```{r}
+valueBox(value = paste(format(italy_total_last$total_tests, big.mark = ","), "", sep = " "), 
+         caption = "Total Tested Cases", 
+         icon = "fas fa-user-md", 
+         color = tested_color)
+```
+
+### Positive Cases {.value-box}
+
+```{r}
+valueBox(value = paste(format(italy_total_last$cumulative_cases, big.mark = ","), "", sep = " "), 
+         caption = "Total Positive Cases", 
+         icon = "far fa-plus-square", 
+         color = positive_color)
+```
+
+
+
+Column { data-width=425 }
 -----------------------------------------------------------------------
 
-### Chart A
+### Daily New Cases
 
-```{r}
-library(plotly)
-
-fig <-  plot_ly(x = c(0,1, 2), y = c(2, 1, 3), type = 'bar') %>%
-  layout(title = 'A Figure Displaying Itself',
-         plot_bgcolor='#e5ecf6', 
-         xaxis = list( 
-           zerolinecolor = '#ffff', 
-           zerolinewidth = 2, 
-           gridcolor = 'ffff'), 
-         yaxis = list( 
-           zerolinecolor = '#ffff', 
-           zerolinewidth = 2, 
-           gridcolor = 'ffff'))
-
-fig
-
+```{r daily_new}
+plotly::plot_ly(data = italy_total,
+                x = ~ date,
+                y = ~ c(NA,diff(italy_total$cumulative_cases)),
+                type = "scatter",
+                mode = "markers",
+                name = "Positive Cases") %>%
+  plotly::add_lines(x = ~ date, 
+                    y = ~ new_cases_smooth,
+                    line = list(color = "#fb5607", width = 3),
+                    name = "Trend Line") %>%
+  plotly::layout(title = "",
+                 legend = list(x = 0.03, y = 0.95),
+                 yaxis = list(title = "Number of Cases"),
+                 xaxis = list(title = "Using 5 days trailing moving average to calculate the trend line"),
+                 hovermode = "compare")
+  
 ```
 
-Column {data-width=350}
+
+Column { data-width=425 }
 -----------------------------------------------------------------------
 
-### Chart B
+### Daily Death Cases
 
 ```{r}
-
+plotly::plot_ly(data = italy_total,
+                x = ~ date,
+                y = ~ c(NA,diff(italy_total$death)),
+                type = "scatter",
+                mode = "line",
+                name = "Death Cases",
+                 line = list(color = death_color)) %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Number of Death"),
+                 xaxis = list(title ="")) %>%
+  plotly::add_annotations(text =  paste("The daily number of cases is", 
+                                        "calculated by taking the diff",
+                                        "of the cumulative cases.",
+                                        "Some anomalies may exist",
+                                        "(negative count or unexplained",
+                                        "spikes) is in the raw data.",
+                                        sep = "<br>"),
+                          align = "center",
+                          y = 0.35,
+                          x = as.Date("2020-08-15"),
+                          # axref="x",
+                          # ayref='y',
+                          xref = "x",
+                          yref = "paper",
+                          showarrow = TRUE,
+                          arrowhead = 1,
+                          ax = -10,
+                          ay = -90)
 ```
 
-### Chart C
+
+### Distribution between Recovery and Death
 
 ```{r}
-
+plotly::plot_ly(data = italy_total,
+                x = ~ date,
+                y = ~ recovered, 
+                name = 'Recovered', 
+                fillcolor = recovered_color,
+                type = 'scatter',
+                mode = 'none', 
+                stackgroup = 'one', groupnorm = 'percent') %>%
+  plotly::add_trace( y = ~ death, 
+                     name = "Death",
+                     fillcolor = death_color) %>%
+  plotly::layout(title = "",
+                 legend = list(x = 0.75, y = 0.05),
+                 ticksuffix = "%",
+                 yaxis = list(title = "Recoverd / Death Dist (%)", 
+                              showgrid = FALSE,
+                              hoverformat = ".2f",
+                              ticksuffix = "%"),
+                 xaxis = list(title = "Source: Italy Department of Civil Protection", showgrid = FALSE),
+                 hovermode = "compared")
 ```
 
+
+
+About
+=======================================================================
+
+**Data**
+
+The input data for this dashboard are the XXX. The data and dashboard are updated regularly. 
+
+**Data source**
+
+The raw data for XXX is pulled from XXX
+
+**Packages**
+
+* Dashboard interface - the [flexdashboard](https://rmarkdown.rstudio.com/flexdashboard/) package. 
+* Visualization - the [plotly](https://plot.ly/r/) package for the plots and [mapview](https://r-spatial.github.io/mapview/) package for the map 
+* Data manipulation - [dplyr](https://dplyr.tidyverse.org/), and [tidyr](https://tidyr.tidyverse.org/)
+* Tables - the [DT](https://rstudio.github.io/DT/) package
